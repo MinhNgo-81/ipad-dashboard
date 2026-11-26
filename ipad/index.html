@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<!-- Thêm vào Màn hình chính → mở toàn màn hình, không có thanh Safari -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Dashboard">
+<title>Dashboard</title>
+<style>
+  :root { --bg: #fff; }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
+  body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  /* Viết kiểu cũ (không dùng inset, ??) để chạy được cả Safari iOS 9–12 trên iPad đời đầu */
+  #img { position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; object-fit: contain; }
+  /* Lớp phủ tối ban đêm (web không chỉnh được độ sáng thật của iPad) */
+  #dim { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity 2s; }
+  #status { position: fixed; right: 12px; bottom: 10px;
+            font: 13px -apple-system, system-ui, sans-serif; color: #888; background: rgba(255,255,255,.85);
+            padding: 3px 8px; border-radius: 6px; display: none; }
+</style>
+</head>
+<body>
+<img id="img" src="dashboard.png" alt="">
+<div id="dim"></div>
+<div id="status"></div>
+<script>
+// Tuỳ chỉnh qua tham số trên link, ví dụ: index.html?refresh=10&night=0-7&dim=0.6
+function param(name) {   // đọc tham số trên link (không cần URLSearchParams, chạy được iOS cũ)
+  var m = new RegExp('[?&]' + name + '=([^&]*)').exec(location.search);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+var REFRESH_MIN = Math.max(1, parseFloat(param('refresh')) || 5);   // bao nhiêu phút tải ảnh mới
+var NIGHT = (param('night') || '0-7').split('-').map(Number);        // khung giờ làm tối màn hình
+var dimParam = parseFloat(param('dim'));
+var DIM = Math.min(0.9, Math.max(0, isNaN(dimParam) ? 0.6 : dimParam));
+
+var img = document.getElementById('img');
+var dim = document.getElementById('dim');
+var statusEl = document.getElementById('status');
+var lastOk = Date.now();
+
+function showStatus(text) {
+  statusEl.textContent = text;
+  statusEl.style.display = text ? 'block' : 'none';
+}
+
+// Tải ảnh mới ở nền; chỉ thay khi tải xong → không bao giờ bị màn trắng / ảnh vỡ.
+function refresh() {
+  var next = new Image();
+  next.onload = function () {
+    img.src = next.src;
+    lastOk = Date.now();
+    showStatus('');
+  };
+  next.onerror = function () {
+    var mins = Math.round((Date.now() - lastOk) / 60000);
+    showStatus('Mất kết nối · ảnh cũ ' + mins + ' phút');
+  };
+  next.src = 'dashboard.png?t=' + Date.now();   // né bộ nhớ đệm CDN
+}
+
+function inNight(h) {
+  var s = NIGHT[0], e = NIGHT[1];
+  if (isNaN(s) || isNaN(e) || s === e) return false;
+  return s < e ? (h >= s && h < e) : (h >= s || h < e);
+}
+function applyDim() { dim.style.opacity = inNight(new Date().getHours()) ? DIM : 0; }
+
+// Giữ màn hình sáng (iOS 16.4+; vẫn nên đặt Tự động khoá = Không bao giờ)
+var lock = null;
+function keepAwake() {
+  try {
+    if ('wakeLock' in navigator && !lock) {
+      navigator.wakeLock.request('screen').then(function (l) {
+        lock = l;
+        lock.addEventListener('release', function () { lock = null; });
+      })['catch'](function () {});
+    }
+  } catch (e) {}
+}
+
+document.addEventListener('visibilitychange', function () {
+  if (!document.hidden) { refresh(); keepAwake(); }
+});
+// Chạm 2 lần vào màn hình = tải lại ngay
+var lastTap = 0;
+document.addEventListener('touchend', function (ev) {
+  var t = Date.now();
+  if (t - lastTap < 350) { ev.preventDefault(); refresh(); showStatus('Đang tải lại…'); }
+  lastTap = t;
+}, { passive: false });
+
+applyDim();
+keepAwake();
+setInterval(refresh, REFRESH_MIN * 60000);
+setInterval(applyDim, 60000);
+// An toàn: tải lại cả trang mỗi 6 giờ để tránh Safari treo sau nhiều ngày chạy
+setTimeout(function () { location.reload(); }, 6 * 3600000);
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+name: Giữ lịch chạy luôn bật
+
+# GitHub tự tắt lịch chạy (schedule) của repo công khai nếu 60 ngày không có thay đổi.
+# Workflow này chạy mỗi tuần, "bật lại" workflow vẽ dashboard (và chính nó) để reset bộ đếm 60 ngày.
+# Không tạo commit, không đụng vào code.
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"   # 10:17 sáng thứ Hai giờ VN
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bật lại các workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for wf in update.yml keepalive.yml; do
+            gh api -X PUT "repos/${{ github.repository }}/actions/workflows/$wf/enable" && echo "Đã bật $wf"
+          done
