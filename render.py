@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -182,8 +183,20 @@ def fetch_google(today: date) -> tuple[list[Event], list[Task]]:
     return events, tasks
 
 
+_EMOJI = re.compile("[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U00002B00-\U00002BFF️‍⃣]+")
+
+
+def strip_emoji(s: str) -> str:
+    """Font Inter không có emoji (sẽ vẽ thành ô 'NO GLYPH') nên bỏ đi."""
+    return re.sub(r"\s{2,}", " ", _EMOJI.sub("", s or "")).strip() or "(Không tiêu đề)"
+
+
 def parse_payload(data: dict, today: date) -> tuple[list[Event], list[Task]]:
     """Đọc JSON từ Google Apps Script (apps_script.gs)."""
+    for e in data.get("events", []):
+        e["title"] = strip_emoji(e.get("title", ""))
+    for t in data.get("tasks", []):
+        t["title"] = strip_emoji(t.get("title", ""))
     events: list[Event] = []
     for e in data.get("events", []):
         name = e.get("calendar", "")
