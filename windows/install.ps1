@@ -9,9 +9,17 @@ $UrlFile = Join-Path $env:USERPROFILE '.kindle-dashboard-url'
 $Task    = 'ClaudeUsageDashboard'
 
 if (-not (Test-Path $UrlFile) -or -not (Get-Content $UrlFile -Raw).Trim()) {
-  $sec = Read-Host 'Dán DATA_URL (link Web app Apps Script + ?token=...) rồi Enter' -AsSecureString
+  Write-Output 'Copy DATA_URL (link Web app Apps Script + ?token=...) rồi chỉ cần bấm Enter: script tự đọc từ clipboard.'
+  $sec = Read-Host 'DATA_URL (hoặc dán vào, chữ không hiện)' -AsSecureString
   $url = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
-  Set-Content -Path $UrlFile -Value ($url -replace '\s', '') -NoNewline -Encoding ASCII
+  if (-not $url -or -not $url.Trim()) { $url = (Get-Clipboard | Out-String) }
+  $url = $url -replace '\s', ''
+  if ($url -notmatch '^https://script\.google\.com/macros/s/.+/exec\?token=.+') {
+    Write-Output 'Link không đúng dạng https://script.google.com/macros/s/.../exec?token=... — copy lại rồi chạy lại install.ps1.'
+    exit 1
+  }
+  Write-Output ('Đã nhận: ' + ($url -replace '(/macros/s/.{6}).*(/exec).*', '$1…$2?token=****'))
+  Set-Content -Path $UrlFile -Value $url -NoNewline -Encoding ASCII
   # chỉ tài khoản Windows của bạn đọc được file này
   icacls $UrlFile /inheritance:r /grant:r "$($env:USERNAME):F" | Out-Null
 }

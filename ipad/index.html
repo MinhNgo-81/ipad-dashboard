@@ -3,102 +3,521 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<!-- Thêm vào Màn hình chính → mở toàn màn hình, không có thanh Safari -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Dashboard">
 <title>Dashboard</title>
+<!--
+  Dashboard iPad dạng web: lấy dữ liệu thẳng từ Apps Script, chạm ô vuông để đánh dấu xong.
+  Viết để chạy được cả Safari iOS 12 (iPad Air 1): không dùng ?. ?? gap inset replaceAll.
+  Khi build, GitHub Actions thay __API__, __LAT__, __LON__, __SKIP__.
+  Khoá (token) KHÔNG nằm trong file: mở trang bằng link .../#k=<TOKEN> một lần, trang tự nhớ.
+-->
 <style>
-  :root { --bg: #fff; }
-  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
-  body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-  /* Viết kiểu cũ (không dùng inset, ??) để chạy được cả Safari iOS 9–12 trên iPad đời đầu */
-  #img { position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; object-fit: contain; }
-  /* Lớp phủ tối ban đêm (web không chỉnh được độ sáng thật của iPad) */
-  #dim { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity 2s; }
-  #status { position: fixed; right: 12px; bottom: 10px;
-            font: 13px -apple-system, system-ui, sans-serif; color: #888; background: rgba(255,255,255,.85);
-            padding: 3px 8px; border-radius: 6px; display: none; }
+  :root {
+    --u: calc(min(100vw, 75vh) / 960);   /* 1 đơn vị = 1/960 bề ngang màn dọc */
+    --black: #000; --dark: #333; --mid: #777; --pale: #ddd; --bg: #fff;
+  }
+  html, body { margin: 0; background: var(--bg); color: var(--black); }
+  body {
+    font-family: -apple-system, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+    -webkit-text-size-adjust: 100%; -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #app { box-sizing: border-box; padding: calc(56 * var(--u)) calc(56 * var(--u)) calc(40 * var(--u));
+         min-height: 100vh; display: flex; flex-direction: column; }
+  .row { display: flex; justify-content: space-between; align-items: flex-start; }
+  .grow { flex: 1; min-width: 0; }
+  .ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* đầu trang */
+  .thu { font-size: calc(88 * var(--u)); font-weight: 800; line-height: 1.05; letter-spacing: -0.02em; }
+  .ngay { font-size: calc(38 * var(--u)); font-weight: 600; color: var(--dark); margin-top: calc(12 * var(--u)); }
+  .sub { font-size: calc(28 * var(--u)); color: var(--mid); margin-top: calc(8 * var(--u)); }
+  .wx { text-align: right; }
+  .wx-top { display: flex; align-items: center; justify-content: flex-end; }
+  .wx-top svg { width: calc(110 * var(--u)); height: calc(110 * var(--u)); margin-right: calc(12 * var(--u)); }
+  .temp { font-size: calc(96 * var(--u)); font-weight: 800; line-height: 1; letter-spacing: -0.02em; }
+  .wx-l1 { font-size: calc(28 * var(--u)); font-weight: 500; color: var(--dark); margin-top: calc(10 * var(--u)); }
+  .rule { height: calc(6 * var(--u)); background: var(--black); margin: calc(24 * var(--u)) 0 calc(28 * var(--u)); }
+  .thin { height: 2px; background: var(--pale); margin: calc(20 * var(--u)) 0 calc(24 * var(--u)); }
+
+  /* Claude */
+  .lab { font-size: calc(24 * var(--u)); font-weight: 700; letter-spacing: .02em; }
+  .cols { display: flex; margin-top: calc(10 * var(--u)); }
+  .col { flex: 1; min-width: 0; }
+  .col + .col { margin-left: calc(40 * var(--u)); }
+  .cl-name { font-size: calc(24 * var(--u)); color: var(--dark); font-weight: 500; }
+  .cl-pct { font-size: calc(30 * var(--u)); font-weight: 700; }
+  .bar { height: calc(16 * var(--u)); border: 2px solid var(--black); border-radius: 99px; margin-top: calc(8 * var(--u)); overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--black); border-radius: 99px; }
+  .small { font-size: calc(22 * var(--u)); color: var(--mid); margin-top: calc(6 * var(--u)); }
+
+  /* thẻ tiếp theo */
+  .next { background: var(--black); color: #fff; border-radius: calc(22 * var(--u));
+          padding: calc(26 * var(--u)) calc(40 * var(--u)); margin-bottom: calc(36 * var(--u)); }
+  .next .k { font-size: calc(24 * var(--u)); font-weight: 600; opacity: .85; letter-spacing: .02em; }
+  .next .t { font-size: calc(44 * var(--u)); font-weight: 700; margin-top: calc(6 * var(--u)); }
+  .next .l { font-size: calc(26 * var(--u)); opacity: .85; margin-top: calc(6 * var(--u)); }
+
+  /* tiêu đề mục */
+  .sec { display: flex; justify-content: space-between; align-items: baseline;
+         border-bottom: calc(3 * var(--u)) solid var(--black); padding-bottom: calc(10 * var(--u)); }
+  .sec b { font-size: calc(30 * var(--u)); font-weight: 700; }
+  .sec span { font-size: calc(24 * var(--u)); color: var(--mid); }
+  .block { margin-bottom: calc(34 * var(--u)); }
+
+  /* việc cần làm */
+  .task { display: flex; align-items: center; min-height: calc(92 * var(--u)); border-bottom: 2px solid #eee;
+          transition: opacity .4s; }
+  .task.done { opacity: .35; }
+  .task.done .tt { text-decoration: line-through; }
+  .box { flex: none; width: calc(84 * var(--u)); height: calc(92 * var(--u)); display: flex; align-items: center; cursor: pointer; }
+  .box i { display: block; width: calc(40 * var(--u)); height: calc(40 * var(--u)); border: calc(4 * var(--u)) solid var(--black);
+           border-radius: calc(9 * var(--u)); box-sizing: border-box; position: relative; }
+  .task.done .box i { background: var(--black); }
+  .task.done .box i:after { content: ""; position: absolute; left: 28%; top: 8%; width: 28%; height: 55%;
+           border: solid #fff; border-width: 0 calc(5 * var(--u)) calc(5 * var(--u)) 0; transform: rotate(45deg); }
+  .tt { font-size: calc(32 * var(--u)); }
+  .tsrc { font-size: calc(20 * var(--u)); color: var(--mid); margin-top: calc(2 * var(--u)); }
+  .pill { flex: none; margin-left: calc(16 * var(--u)); font-size: calc(22 * var(--u)); font-weight: 700;
+          padding: calc(5 * var(--u)) calc(16 * var(--u)); border-radius: 99px; border: 2px solid var(--black); }
+  .pill.on { background: var(--black); color: #fff; }
+  .more { font-size: calc(24 * var(--u)); color: var(--mid); padding: calc(16 * var(--u)) 0 0; cursor: pointer; }
+
+  /* lịch */
+  .ev { display: flex; font-size: calc(30 * var(--u)); padding: calc(10 * var(--u)) 0; }
+  .ev .tm { flex: none; width: calc(260 * var(--u)); color: var(--dark); font-variant-numeric: tabular-nums; }
+  .ev.past { color: #aaa; } .ev.past .tm { color: #aaa; } .ev.past .et { text-decoration: line-through; }
+  .ev.now .et { font-weight: 700; }
+  .empty { font-size: calc(28 * var(--u)); color: var(--mid); padding: calc(14 * var(--u)) 0; }
+
+  .foot { margin-top: auto; border-top: 2px solid var(--pale); padding-top: calc(14 * var(--u));
+          display: flex; justify-content: space-between; font-size: calc(22 * var(--u)); color: var(--mid); }
+  .foot a { color: var(--mid); text-decoration: underline; cursor: pointer; }
+
+  #toast { position: fixed; left: 50%; bottom: calc(40 * var(--u)); -webkit-transform: translateX(-50%); transform: translateX(-50%);
+           background: #111; color: #fff; border-radius: calc(16 * var(--u)); padding: calc(18 * var(--u)) calc(28 * var(--u));
+           font-size: calc(26 * var(--u)); display: none; max-width: 86%; box-shadow: 0 6px 24px rgba(0,0,0,.25); }
+  #toast a { color: #fff; font-weight: 700; text-decoration: underline; margin-left: calc(20 * var(--u)); cursor: pointer; }
+  #dim { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #000; opacity: 0;
+         pointer-events: none; transition: opacity 2s; }
+  .msg { font-size: calc(30 * var(--u)); line-height: 1.5; padding: calc(80 * var(--u)) 0; color: var(--dark); }
 </style>
 </head>
 <body>
-<img id="img" src="dashboard.png" alt="">
+<div id="app"><div class="msg">Đang tải…</div></div>
+<div id="toast"></div>
 <div id="dim"></div>
-<div id="status"></div>
 <script>
-// Tuỳ chỉnh qua tham số trên link, ví dụ: index.html?refresh=10&night=0-7&dim=0.6
-function param(name) {   // đọc tham số trên link (không cần URLSearchParams, chạy được iOS cũ)
-  var m = new RegExp('[?&]' + name + '=([^&]*)').exec(location.search);
-  return m ? decodeURIComponent(m[1]) : null;
-}
-var REFRESH_MIN = Math.max(1, parseFloat(param('refresh')) || 5);   // bao nhiêu phút tải ảnh mới
-var NIGHT = (param('night') || '0-7').split('-').map(Number);        // khung giờ làm tối màn hình
-var dimParam = parseFloat(param('dim'));
-var DIM = Math.min(0.9, Math.max(0, isNaN(dimParam) ? 0.6 : dimParam));
+(function () {
+  'use strict';
+  // ------------------------------------------------------------ cấu hình (GitHub Actions điền khi build)
+  var API = '__API__';                 // link Web app Apps Script (không có token)
+  var LAT = parseFloat('__LAT__'), LON = parseFloat('__LON__');
+  var SKIP = [];
+  try { SKIP = JSON.parse('__SKIP__'); } catch (e) {}
+  var UNDO_SEC = 5;                    // chạm ô vuông → 5 giây để hoàn tác rồi mới gửi đi
 
-var img = document.getElementById('img');
-var dim = document.getElementById('dim');
-var statusEl = document.getElementById('status');
-var lastOk = Date.now();
+  function param(name, src) {
+    var m = new RegExp('[?&#]' + name + '=([^&#]*)').exec(src);
+    return m ? decodeURIComponent(m[1]) : null;
+  }
+  var Q = location.search;
+  var REFRESH_MIN = Math.max(1, parseFloat(param('refresh', Q)) || 3);   // ban ngày
+  var NIGHT = (param('night', Q) || '0-7').split('-').map(Number);
+  var dimP = parseFloat(param('dim', Q));
+  var DIM = Math.min(0.9, Math.max(0, isNaN(dimP) ? 0.6 : dimP));
 
-function showStatus(text) {
-  statusEl.textContent = text;
-  statusEl.style.display = text ? 'block' : 'none';
-}
+  // ------------------------------------------------------------ lưu trữ nhỏ trên máy
+  function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function save(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 
-// Tải ảnh mới ở nền; chỉ thay khi tải xong → không bao giờ bị màn trắng / ảnh vỡ.
-function refresh() {
-  var next = new Image();
-  next.onload = function () {
-    img.src = next.src;
-    lastOk = Date.now();
-    showStatus('');
-  };
-  next.onerror = function () {
-    var mins = Math.round((Date.now() - lastOk) / 60000);
-    showStatus('Mất kết nối · ảnh cũ ' + mins + ' phút');
-  };
-  next.src = 'dashboard.png?t=' + Date.now();   // né bộ nhớ đệm CDN
-}
+  // khoá: lấy từ #k=... (phần sau dấu # không bao giờ được gửi lên máy chủ), nhớ lại trên máy
+  var KEY = param('k', location.hash);
+  if (KEY) { save('dash_k', KEY); } else { KEY = load('dash_k'); }
 
-function inNight(h) {
-  var s = NIGHT[0], e = NIGHT[1];
-  if (isNaN(s) || isNaN(e) || s === e) return false;
-  return s < e ? (h >= s && h < e) : (h >= s || h < e);
-}
-function applyDim() { dim.style.opacity = inNight(new Date().getHours()) ? DIM : 0; }
+  // ------------------------------------------------------------ tiện ích ngày giờ
+  var THU = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
+  var THU_NGAN = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+  function p2(n) { return (n < 10 ? '0' : '') + n; }
+  function ymd(d) { return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
+  function hm(d) { return p2(d.getHours()) + ':' + p2(d.getMinutes()); }
+  function addDays(d, n) { var x = new Date(d.getTime()); x.setDate(x.getDate() + n); return x; }
+  function parseYmd(s) { var a = s.split('-'); return new Date(+a[0], +a[1] - 1, +a[2]); }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
 
-// Giữ màn hình sáng (iOS 16.4+; vẫn nên đặt Tự động khoá = Không bao giờ)
-var lock = null;
-function keepAwake() {
-  try {
-    if ('wakeLock' in navigator && !lock) {
-      navigator.wakeLock.request('screen').then(function (l) {
-        lock = l;
-        lock.addEventListener('release', function () { lock = null; });
-      })['catch'](function () {});
+  // ------------------------------------------------------------ âm lịch (thuật toán Hồ Ngọc Đức, múi giờ +7)
+  var INT = Math.floor;
+  function jdFromDate(dd, mm, yy) {
+    var a = INT((14 - mm) / 12), y = yy + 4800 - a, m = mm + 12 * a - 3;
+    var jd = dd + INT((153 * m + 2) / 5) + 365 * y + INT(y / 4) - INT(y / 100) + INT(y / 400) - 32045;
+    if (jd < 2299161) jd = dd + INT((153 * m + 2) / 5) + 365 * y + INT(y / 4) - 32083;
+    return jd;
+  }
+  function newMoon(k) {
+    var T = k / 1236.85, T2 = T * T, T3 = T2 * T, dr = Math.PI / 180;
+    var Jd1 = 2415020.75933 + 29.53058868 * k + 0.0001178 * T2 - 0.000000155 * T3;
+    Jd1 += 0.00033 * Math.sin((166.56 + 132.87 * T - 0.009173 * T2) * dr);
+    var M = 359.2242 + 29.10535608 * k - 0.0000333 * T2 - 0.00000347 * T3;
+    var Mpr = 306.0253 + 385.81691806 * k + 0.0107306 * T2 + 0.00001236 * T3;
+    var F = 21.2964 + 390.67050646 * k - 0.0016528 * T2 - 0.00000239 * T3;
+    var C1 = (0.1734 - 0.000393 * T) * Math.sin(M * dr) + 0.0021 * Math.sin(2 * dr * M);
+    C1 = C1 - 0.4068 * Math.sin(Mpr * dr) + 0.0161 * Math.sin(dr * 2 * Mpr);
+    C1 = C1 - 0.0004 * Math.sin(dr * 3 * Mpr);
+    C1 = C1 + 0.0104 * Math.sin(dr * 2 * F) - 0.0051 * Math.sin(dr * (M + Mpr));
+    C1 = C1 - 0.0074 * Math.sin(dr * (M - Mpr)) + 0.0004 * Math.sin(dr * (2 * F + M));
+    C1 = C1 - 0.0004 * Math.sin(dr * (2 * F - M)) - 0.0006 * Math.sin(dr * (2 * F + Mpr));
+    C1 = C1 + 0.0010 * Math.sin(dr * (2 * F - Mpr)) + 0.0005 * Math.sin(dr * (2 * Mpr + M));
+    var dt = T < -11 ? 0.001 + 0.000839 * T + 0.0002261 * T2 - 0.00000845 * T3 - 0.000000081 * T * T3
+                     : -0.000278 + 0.000265 * T + 0.000262 * T2;
+    return Jd1 + C1 - dt;
+  }
+  function newMoonDay(k, tz) { return INT(newMoon(k) + 0.5 + tz / 24); }
+  function sunLong(jdn) {
+    var T = (jdn - 2451545.0) / 36525, T2 = T * T, dr = Math.PI / 180;
+    var M = 357.52910 + 35999.05030 * T - 0.0001559 * T2 - 0.00000048 * T * T2;
+    var L0 = 280.46645 + 36000.76983 * T + 0.0003032 * T2;
+    var DL = (1.914600 - 0.004817 * T - 0.000014 * T2) * Math.sin(dr * M);
+    DL += (0.019993 - 0.000101 * T) * Math.sin(dr * 2 * M) + 0.000290 * Math.sin(dr * 3 * M);
+    var L = (L0 + DL) * dr;
+    return L - Math.PI * 2 * INT(L / (Math.PI * 2));
+  }
+  function sunIdx(day, tz) { return INT(sunLong(day - 0.5 - tz / 24) / Math.PI * 6); }
+  function month11(yy, tz) {
+    var off = jdFromDate(31, 12, yy) - 2415021, k = INT(off / 29.530588853), nm = newMoonDay(k, tz);
+    if (sunIdx(nm, tz) >= 9) nm = newMoonDay(k - 1, tz);
+    return nm;
+  }
+  function leapOffset(a11, tz) {
+    var k = INT((a11 - 2415021.076998695) / 29.530588853 + 0.5), i = 1, last;
+    var arc = sunIdx(newMoonDay(k + i, tz), tz);
+    do { last = arc; i++; arc = sunIdx(newMoonDay(k + i, tz), tz); } while (arc !== last && i < 14);
+    return i - 1;
+  }
+  function solarToLunar(dd, mm, yy) {
+    var tz = 7, day = jdFromDate(dd, mm, yy), k = INT((day - 2415021.076998695) / 29.530588853);
+    var start = newMoonDay(k + 1, tz);
+    if (start > day) start = newMoonDay(k, tz);
+    var a11 = month11(yy, tz), b11 = a11, ly;
+    if (a11 >= start) { ly = yy; a11 = month11(yy - 1, tz); } else { ly = yy + 1; b11 = month11(yy + 1, tz); }
+    var ld = day - start + 1, diff = INT((start - a11) / 29), leap = false, lm = diff + 11;
+    if (b11 - a11 > 365) {
+      var lo = leapOffset(a11, tz);
+      if (diff >= lo) { lm = diff + 10; leap = diff === lo; }
     }
-  } catch (e) {}
-}
+    if (lm > 12) lm -= 12;
+    if (lm >= 11 && diff < 4) ly -= 1;
+    return [ld, lm, ly, leap];
+  }
+  var CAN = ['Giáp', 'Ất', 'Bính', 'Đinh', 'Mậu', 'Kỷ', 'Canh', 'Tân', 'Nhâm', 'Quý'];
+  var CHI = ['Tý', 'Sửu', 'Dần', 'Mão', 'Thìn', 'Tỵ', 'Ngọ', 'Mùi', 'Thân', 'Dậu', 'Tuất', 'Hợi'];
+  function yearName(y) { return CAN[(y + 6) % 10] + ' ' + CHI[(y + 8) % 12]; }
+  window.__lunarTest = solarToLunar;   // để kiểm tra
 
-document.addEventListener('visibilitychange', function () {
-  if (!document.hidden) { refresh(); keepAwake(); }
-});
-// Chạm 2 lần vào màn hình = tải lại ngay
-var lastTap = 0;
-document.addEventListener('touchend', function (ev) {
-  var t = Date.now();
-  if (t - lastTap < 350) { ev.preventDefault(); refresh(); showStatus('Đang tải lại…'); }
-  lastTap = t;
-}, { passive: false });
+  // ------------------------------------------------------------ thời tiết (Open-Meteo, gọi thẳng từ iPad)
+  var WMO = {0: ['Trời quang', 'sun'], 1: ['Nắng nhẹ', 'sun'], 2: ['Có mây', 'partly'], 3: ['Nhiều mây', 'cloud'],
+    45: ['Sương mù', 'fog'], 48: ['Sương mù', 'fog'], 51: ['Mưa phùn', 'rain'], 53: ['Mưa phùn', 'rain'],
+    55: ['Mưa phùn', 'rain'], 61: ['Mưa nhỏ', 'rain'], 63: ['Mưa vừa', 'rain'], 65: ['Mưa to', 'rain'],
+    80: ['Mưa rào', 'rain'], 81: ['Mưa rào', 'rain'], 82: ['Mưa rất to', 'rain'],
+    95: ['Dông', 'storm'], 96: ['Dông, mưa đá', 'storm'], 99: ['Dông, mưa đá', 'storm']};
+  function aqiLabel(v) {
+    var L = [[50, 'Tốt'], [100, 'Trung bình'], [150, 'Kém'], [200, 'Xấu'], [300, 'Rất xấu']];
+    for (var i = 0; i < L.length; i++) if (v <= L[i][0]) return L[i][1];
+    return 'Nguy hại';
+  }
+  function icon(kind) {
+    var s = 'fill="none" stroke="#000" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"';
+    var cloud = '<path d="M30 78h44a16 16 0 0 0 0-32 22 22 0 0 0-42-6 18 18 0 0 0-2 38z" ' + s + '/>';
+    var parts = {
+      sun: '<circle cx="50" cy="50" r="18" ' + s + '/>' + [0, 45, 90, 135, 180, 225, 270, 315].map(function (a) {
+        var r = a * Math.PI / 180, c = Math.cos(r), n = Math.sin(r);
+        return '<line x1="' + (50 + 28 * c) + '" y1="' + (50 + 28 * n) + '" x2="' + (50 + 40 * c) + '" y2="' + (50 + 40 * n) + '" ' + s + '/>';
+      }).join(''),
+      partly: '<circle cx="36" cy="36" r="14" ' + s + '/>' + cloud,
+      cloud: cloud,
+      rain: '<g transform="translate(0,-12)">' + cloud + '</g><line x1="36" y1="78" x2="30" y2="92" ' + s + '/><line x1="52" y1="78" x2="46" y2="92" ' + s + '/><line x1="68" y1="78" x2="62" y2="92" ' + s + '/>',
+      storm: '<g transform="translate(0,-12)">' + cloud + '</g><path d="M52 70l-10 14h12l-8 14" ' + s + '/>',
+      fog: '<line x1="18" y1="40" x2="82" y2="40" ' + s + '/><line x1="12" y1="56" x2="88" y2="56" ' + s + '/><line x1="22" y1="72" x2="78" y2="72" ' + s + '/>'
+    };
+    return '<svg viewBox="0 0 100 100">' + (parts[kind] || cloud) + '</svg>';
+  }
+  var weather = null, weatherAt = 0;
+  function fetchWeather() {
+    if (isNaN(LAT) || isNaN(LON)) return;
+    var u = 'https://api.open-meteo.com/v1/forecast?latitude=' + LAT + '&longitude=' + LON +
+      '&timezone=auto&forecast_days=1&current=temperature_2m,weather_code' +
+      '&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max';
+    fetch(u).then(function (r) { return r.json(); }).then(function (r) {
+      var w = { temp: r.current.temperature_2m, code: r.current.weather_code,
+                tmin: r.daily.temperature_2m_min[0], tmax: r.daily.temperature_2m_max[0],
+                rain: r.daily.precipitation_probability_max[0] || 0, aqi: weather ? weather.aqi : null };
+      weather = w; weatherAt = Date.now(); render();
+      return fetch('https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + LAT + '&longitude=' + LON + '&current=us_aqi');
+    }).then(function (r) { return r && r.json(); }).then(function (a) {
+      if (a && a.current && weather) { weather.aqi = Math.round(a.current.us_aqi); render(); }
+    })['catch'](function () {});
+  }
 
-applyDim();
-keepAwake();
-setInterval(refresh, REFRESH_MIN * 60000);
-setInterval(applyDim, 60000);
-// An toàn: tải lại cả trang mỗi 6 giờ để tránh Safari treo sau nhiều ngày chạy
-setTimeout(function () { location.reload(); }, 6 * 3600000);
+  // ------------------------------------------------------------ dữ liệu từ Apps Script
+  var data = null, dataAt = 0, lastErr = '';
+  var hidden = {};          // việc vừa tick xong: ẩn tới khi Apps Script cũng hết trả về (tối đa 15 phút)
+  var pending = {};         // việc đang chờ hết 5 giây hoàn tác
+  var showAllTasks = false, showAllEv = false;
+
+  try { var c = JSON.parse(load('dash_cache') || 'null'); if (c) { data = c.d; dataAt = c.t; } } catch (e) {}
+  try { hidden = JSON.parse(load('dash_hidden') || '{}') || {}; } catch (e) {}
+
+  function apiUrl(extra) {
+    return API + '?token=' + encodeURIComponent(KEY) + (extra || '') + '&t=' + Date.now();
+  }
+  function fetchData() {
+    if (!KEY) return render();
+    fetch(apiUrl('')).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.error) { lastErr = d.error === 'forbidden' ? 'Sai khoá (#k=...)' : d.error; render(); return; }
+      data = d; dataAt = Date.now(); lastErr = '';
+      save('dash_cache', JSON.stringify({ d: d, t: dataAt }));
+      // việc đã ẩn mà Apps Script không còn trả về → bỏ khỏi danh sách ẩn
+      var ids = {};
+      (d.tasks || []).forEach(function (t) { if (t.id) ids[t.id] = 1; });
+      Object.keys(hidden).forEach(function (id) {
+        if (!ids[id] || Date.now() - hidden[id] > 15 * 60000) delete hidden[id];
+      });
+      save('dash_hidden', JSON.stringify(hidden));
+      render();
+    })['catch'](function () { lastErr = 'Mất kết nối'; render(); });
+  }
+
+  // ------------------------------------------------------------ tick việc
+  var toast = document.getElementById('toast'), toastTimer = null;
+  function showToast(html, ms) {
+    toast.innerHTML = html; toast.style.display = 'block';
+    clearTimeout(toastTimer);
+    if (ms) toastTimer = setTimeout(function () { toast.style.display = 'none'; }, ms);
+  }
+  function findTask(id) {
+    var ts = (data && data.tasks) || [];
+    for (var i = 0; i < ts.length; i++) if (ts[i].id === id) return ts[i];
+    return null;
+  }
+  function tick(id) {
+    var t = findTask(id);
+    if (!t || pending[id]) return;
+    pending[id] = setTimeout(function () { send(t); }, UNDO_SEC * 1000);
+    render();
+    showToast('Xong: ' + esc(t.title.length > 40 ? t.title.slice(0, 40) + '…' : t.title) +
+              '<a data-undo="' + esc(id) + '">Hoàn tác</a>', UNDO_SEC * 1000);
+  }
+  function undo(id) {
+    clearTimeout(pending[id]); delete pending[id];
+    toast.style.display = 'none'; render();
+  }
+  function send(t) {
+    var extra = '&action=done&src=' + encodeURIComponent(t.src) + '&id=' + encodeURIComponent(t.id) +
+                (t.listId ? '&list=' + encodeURIComponent(t.listId) : '');
+    fetch(apiUrl(extra)).then(function (r) { return r.json(); }).then(function (r) {
+      delete pending[t.id];
+      if (r.ok) {
+        hidden[t.id] = Date.now(); save('dash_hidden', JSON.stringify(hidden)); render();
+      } else {
+        render(); showToast('Chưa đánh dấu được: ' + esc(r.error || 'lỗi'), 6000);
+      }
+    })['catch'](function () {
+      delete pending[t.id]; render(); showToast('Mất kết nối, chưa đánh dấu được. Thử lại sau.', 6000);
+    });
+  }
+  document.addEventListener('click', function (ev) {
+    var el = ev.target;
+    while (el && el !== document) {
+      if (el.getAttribute) {
+        if (el.getAttribute('data-tick')) { tick(el.getAttribute('data-tick')); return; }
+        if (el.getAttribute('data-undo')) { undo(el.getAttribute('data-undo')); return; }
+        if (el.getAttribute('data-act') === 'more-t') { showAllTasks = !showAllTasks; render(); return; }
+        if (el.getAttribute('data-act') === 'more-e') { showAllEv = !showAllEv; render(); return; }
+        if (el.getAttribute('data-act') === 'reload') { fetchData(); fetchWeather(); showToast('Đang tải lại…', 1500); return; }
+      }
+      el = el.parentNode;
+    }
+  });
+
+  // ------------------------------------------------------------ dựng giao diện
+  function eventsOf(day, now) {
+    var key = ymd(day), out = [];
+    ((data && data.events) || []).forEach(function (e) {
+      if (SKIP.indexOf(e.calendar) >= 0) return;
+      if (e.allDay) {
+        var d0 = e.startDate, d1 = e.endDate || e.startDate;
+        if (d1 <= d0) d1 = ymd(addDays(parseYmd(d0), 1));
+        if (key >= d0 && key < d1) out.push({ title: e.title, allDay: true, location: e.location });
+      } else {
+        var s = new Date(e.start), en = new Date(e.end);
+        if (ymd(s) === key) out.push({ title: e.title, start: s, end: en, location: e.location });
+      }
+    });
+    out.sort(function (a, b) { return (a.allDay ? 0 : a.start.getTime()) - (b.allDay ? 0 : b.start.getTime()); });
+    return out;
+  }
+  function dueTag(due, today) {
+    if (!due) return null;
+    var t = ymd(today), tm = ymd(addDays(today, 1));
+    if (due < t) return ['Quá hạn', true];
+    if (due === t) return ['Hôm nay', true];
+    if (due === tm) return ['Ngày mai', false];
+    var d = parseYmd(due);
+    return [d.getDate() + '/' + (d.getMonth() + 1), false];
+  }
+  function resetLabel(iso, now) {
+    if (!iso) return '';
+    var t = new Date(iso);
+    if (isNaN(t.getTime())) return '';
+    if (ymd(t) === ymd(now)) return 'đặt lại ' + hm(t);
+    return 'đặt lại ' + THU_NGAN[t.getDay()] + ' ' + hm(t);
+  }
+
+  function render() {
+    var app = document.getElementById('app'), now = new Date(), today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    var tom = addDays(today, 1), h = [];
+
+    if (!KEY) {
+      app.innerHTML = '<div class="msg"><b>Chưa có khoá.</b><br>Mở trang bằng link có <code>#k=TOKEN</code> ở cuối ' +
+        '(TOKEN là chuỗi bí mật trong Apps Script), rồi Chia sẻ → Thêm vào MH chính.</div>';
+      return;
+    }
+
+    // đầu trang
+    var L = solarToLunar(today.getDate(), today.getMonth() + 1, today.getFullYear());
+    h.push('<div class="row"><div class="grow"><div class="thu">' + THU[today.getDay()] + '</div>' +
+      '<div class="ngay">' + today.getDate() + ' tháng ' + (today.getMonth() + 1) + ', ' + today.getFullYear() + '</div>' +
+      '<div class="sub">Âm lịch ' + L[0] + '/' + L[1] + (L[3] ? ' nhuận' : '') + ' · năm ' + yearName(L[2]) + '</div></div>');
+    if (weather) {
+      var w = WMO[weather.code] || ['', 'cloud'];
+      h.push('<div class="wx"><div class="wx-top">' + icon(w[1]) + '<div class="temp">' + Math.round(weather.temp) + '°</div></div>' +
+        '<div class="wx-l1">' + w[0] + ' · ' + Math.round(weather.tmin) + '–' + Math.round(weather.tmax) + '°</div>' +
+        '<div class="sub">Mưa ' + weather.rain + '%' + (weather.aqi != null ? ' · AQI ' + weather.aqi + ' ' + aqiLabel(weather.aqi) : '') + '</div></div>');
+    }
+    h.push('</div><div class="rule"></div>');
+
+    // Claude
+    var cu = data && data.claude;
+    if (cu) {
+      var note = '';
+      if (cu.fetched_at) {
+        var ft = new Date(cu.fetched_at);
+        if (now - ft > 2 * 3600000) note = 'số liệu cũ, lúc ' + hm(ft) + ' ' + p2(ft.getDate()) + '/' + p2(ft.getMonth() + 1);
+      }
+      h.push('<div class="row"><div class="lab">CLAUDE</div><div class="small" style="margin:0">' + note + '</div></div><div class="cols">');
+      [['five_hour', 'Phiên hiện tại'], ['seven_day', 'Tuần này']].forEach(function (k) {
+        var v = cu[k[0]] || {}, pct = v.utilization;
+        h.push('<div class="col"><div class="row"><div class="cl-name">' + k[1] + '</div><div class="cl-pct">' +
+          (pct == null ? '--' : Math.round(pct) + '%') + '</div></div>' +
+          '<div class="bar"><i style="width:' + Math.min(100, Math.max(0, pct || 0)) + '%"></i></div>' +
+          '<div class="small">' + resetLabel(v.resets_at, now) + '</div></div>');
+      });
+      h.push('</div><div class="thin"></div>');
+    }
+
+    // thẻ sự kiện tiếp theo
+    var evT = eventsOf(today, now), evM = eventsOf(tom, now);
+    var nxt = null;
+    evT.forEach(function (e) { if (!nxt && !e.allDay && e.end > now) nxt = e; });
+    if (nxt) {
+      var running = nxt.start <= now;
+      h.push('<div class="next"><div class="k">' + (running ? 'ĐANG DIỄN RA' : 'TIẾP THEO') + ' · ' + hm(nxt.start) + '–' + hm(nxt.end) + '</div>' +
+        '<div class="t ell">' + esc(nxt.title) + '</div>' + (nxt.location ? '<div class="l ell">@ ' + esc(nxt.location) + '</div>' : '') + '</div>');
+    }
+
+    // việc cần làm
+    var ts = ((data && data.tasks) || []).filter(function (t) { return !(t.id && hidden[t.id]); });
+    var tkey = ymd(today);
+    ts.sort(function (a, b) {
+      var A = a.due || '9999', B = b.due || '9999';
+      return A < B ? -1 : A > B ? 1 : a.title.localeCompare(b.title);
+    });
+    var nOver = ts.filter(function (t) { return t.due && t.due < tkey; }).length;
+    var nToday = ts.filter(function (t) { return t.due === tkey; }).length;
+    var summ = ts.length + ' việc' + (nOver ? ' · ' + nOver + ' quá hạn' : '') + (nToday ? ' · ' + nToday + ' hôm nay' : '');
+    h.push('<div class="block"><div class="sec"><b>VIỆC CẦN LÀM</b><span>' + summ + '</span></div>');
+    if (!ts.length) h.push('<div class="empty">Không còn việc nào. 🎉</div>');
+    var maxT = showAllTasks ? ts.length : 8;
+    ts.slice(0, maxT).forEach(function (t) {
+      var tag = dueTag(t.due, today), canTick = !!(t.id && t.src);
+      h.push('<div class="task' + (pending[t.id] ? ' done' : '') + '">' +
+        (canTick ? '<div class="box" data-tick="' + esc(t.id) + '"><i></i></div>' : '<div class="box" style="opacity:.3"><i></i></div>') +
+        '<div class="grow"' + (canTick ? ' data-tick="' + esc(t.id) + '"' : '') + '><div class="tt ell">' + esc(t.title) + '</div>' +
+        (t.list ? '<div class="tsrc ell">' + esc(t.list) + '</div>' : '') + '</div>' +
+        (tag ? '<span class="pill' + (tag[1] ? ' on' : '') + '">' + tag[0] + '</span>' : '') + '</div>');
+    });
+    if (ts.length > 8) h.push('<div class="more" data-act="more-t">' + (showAllTasks ? 'Thu gọn' : '+ ' + (ts.length - 8) + ' việc nữa') + '</div>');
+    h.push('</div>');
+
+    // lịch hôm nay + ngày mai
+    function evRows(list, isToday, max) {
+      if (!list.length) return '<div class="empty">' + (isToday ? 'Không có sự kiện nào.' : 'Chưa có lịch.') + '</div>';
+      var out = list.slice(0, max).map(function (e) {
+        var cls = '';
+        if (isToday && !e.allDay) cls = e.end <= now ? ' past' : (e.start <= now ? ' now' : '');
+        if (isToday && nxt && e === nxt) cls = ' now';
+        return '<div class="ev' + cls + '"><div class="tm">' + (e.allDay ? 'Cả ngày' : hm(e.start) + '–' + hm(e.end)) +
+          '</div><div class="et grow ell">' + esc(e.title) + '</div></div>';
+      }).join('');
+      if (list.length > max) out += '<div class="more" data-act="more-e">+ ' + (list.length - max) + ' sự kiện khác</div>';
+      return out;
+    }
+    h.push('<div class="block"><div class="sec"><b>LỊCH HÔM NAY</b><span>' + (evT.length ? evT.length + ' sự kiện' : '') + '</span></div>' +
+      evRows(evT, true, showAllEv ? 99 : 7) + '</div>');
+    h.push('<div class="block"><div class="sec"><b>NGÀY MAI · ' + THU[tom.getDay()].toUpperCase() + '</b><span>' +
+      (evM.length ? evM.length + ' sự kiện' : '') + '</span></div>' + evRows(evM, false, showAllEv ? 99 : 4) + '</div>');
+
+    // chân trang
+    var st = dataAt ? 'Cập nhật ' + hm(new Date(dataAt)) + ' ' + p2(new Date(dataAt).getDate()) + '/' + p2(new Date(dataAt).getMonth() + 1) : 'Chưa có dữ liệu';
+    if (lastErr) st += ' · ' + lastErr;
+    if (data && data.notion_error) st += ' · Notion lỗi';
+    h.push('<div class="foot"><span>' + st + '</span><a data-act="reload">Tải lại</a></div>');
+
+    app.innerHTML = h.join('');
+  }
+
+  // ------------------------------------------------------------ đêm, giữ màn hình sáng, lịch tải lại
+  function inNight(hr) {
+    var s = NIGHT[0], e = NIGHT[1];
+    if (isNaN(s) || isNaN(e) || s === e) return false;
+    return s < e ? (hr >= s && hr < e) : (hr >= s || hr < e);
+  }
+  function applyDim() { document.getElementById('dim').style.opacity = inNight(new Date().getHours()) ? DIM : 0; }
+  var lock = null;
+  function keepAwake() {
+    try {
+      if ('wakeLock' in navigator && !lock) {
+        navigator.wakeLock.request('screen').then(function (l) {
+          lock = l; lock.addEventListener('release', function () { lock = null; });
+        })['catch'](function () {});
+      }
+    } catch (e) {}
+  }
+
+  var lastFetch = 0;
+  function tickLoop() {
+    var nowMs = Date.now(), night = inNight(new Date().getHours());
+    var every = (night ? 15 : REFRESH_MIN) * 60000;
+    if (nowMs - lastFetch >= every) { lastFetch = nowMs; fetchData(); }
+    if (nowMs - weatherAt >= 30 * 60000) fetchWeather();
+    applyDim();
+    render();   // cập nhật giờ "đang diễn ra", sự kiện đã qua
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) { lastFetch = 0; tickLoop(); keepAwake(); }
+  });
+
+  // Giữ nguyên #k=... trên link: "Thêm vào MH chính" lưu đúng link đang mở, và app ở MH chính
+  // có bộ nhớ riêng với Safari nên cần khoá nằm sẵn trong link.
+  window.addEventListener('hashchange', function () { location.reload(); });   // đổi khoá trên link → dùng khoá mới
+  render(); keepAwake(); tickLoop();
+  setInterval(tickLoop, 60000);
+  setTimeout(function () { location.reload(); }, 6 * 3600000);   // tránh Safari treo sau nhiều ngày
+})();
 </script>
 </body>
 </html>

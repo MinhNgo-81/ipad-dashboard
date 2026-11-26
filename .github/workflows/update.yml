@@ -64,8 +64,20 @@ jobs:
           SECRET_PATH: ${{ secrets.SECRET_PATH }}
         run: |
           python render.py --out "_site/${SECRET_PATH:-img}/dashboard.png"
-          # trang hiển thị cho iPad, nằm cùng thư mục bí mật với ảnh
-          cp ipad/index.html "_site/${SECRET_PATH:-img}/index.html"
+          # trang iPad dạng web (tick được) + trang ảnh dự phòng, nằm cùng thư mục bí mật với ảnh.
+          # Điền link Apps Script (bỏ phần ?token=...), toạ độ và lịch cần ẩn vào trang. Token KHÔNG được ghi vào.
+          python - <<'PY'
+          import json, os
+          sp = os.environ.get("SECRET_PATH") or "img"
+          api = (os.environ.get("DATA_URL") or "").split("?")[0]
+          skip = [s.strip() for s in (os.environ.get("DASH_SKIP_CALENDARS") or "").split(",") if s.strip()]
+          html = open("ipad/index.html", encoding="utf-8").read()
+          html = (html.replace("__API__", api).replace("__LAT__", os.environ["DASH_LAT"])
+                      .replace("__LON__", os.environ["DASH_LON"])
+                      .replace("__SKIP__", json.dumps(skip, ensure_ascii=False).replace("\\", "\\\\").replace("'", "\\'")))
+          open(f"_site/{sp}/index.html", "w", encoding="utf-8").write(html)
+          PY
+          cp ipad/anh.html "_site/${SECRET_PATH:-img}/anh.html"
           touch _site/index.html
           # ảnh mẫu (dữ liệu giả) để minh hoạ, ai cũng xem được
           python render.py --sample sample.json --now "2026-11-06T10:30" --out _site/preview.png

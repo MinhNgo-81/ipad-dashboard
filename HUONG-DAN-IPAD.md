@@ -16,7 +16,8 @@ Google Calendar + Tasks ─► Apps Script ─► GitHub Actions vẽ PNG 1640×
 |---|---|
 | `render.py` | Kích thước ảnh đọc từ biến `DASH_W`, `DASH_H` (không đặt thì vẫn là khổ Kindle 1236×1648). |
 | `.github/workflows/update.yml` | Đặt `DASH_W=1640`, `DASH_H=2360`, `DASH_SCALE=1.75`; chép `ipad/index.html` vào cùng thư mục bí mật với ảnh. |
-| `ipad/index.html` (mới) | Trang hiển thị cho iPad: toàn màn hình, tự tải ảnh, không bao giờ bị màn trắng khi rớt mạng, làm tối ban đêm, giữ màn hình sáng. |
+| `ipad/index.html` | Trang iPad dạng web: lấy dữ liệu thẳng từ Apps Script, **chạm để đánh dấu việc xong**, làm tối ban đêm. |
+| `ipad/anh.html` | Trang ảnh cũ (dự phòng): hiện ảnh PNG toàn màn hình, tự tải ảnh mới. |
 | `setup_github.sh` | Cuối cùng in thêm **Link iPad**. |
 | `fonts/` | Đã kèm sẵn font Inter, GitHub khỏi phải tải mỗi lần. |
 | `apps_script.gs` | Thêm lấy việc chưa xong từ **Notion** (tuỳ chọn, xem mục bên dưới). |
@@ -68,6 +69,33 @@ Ví dụ: `https://.../<SECRET_PATH>/?refresh=10&night=23-6&dim=0.75`
   iPad Air 10.9"/11": `1640 x 2360`, `"1.75"` · iPad Air 13": `2048 x 2732`, `"2.2"`.
 - Chữ to/nhỏ: chỉnh `DASH_SCALE` (số lớn hơn = chữ to hơn, ít dòng hơn).
 - Các tuỳ chỉnh khác (thành phố, ẩn lịch, bố cục Claude) giống hệt `README.md` Phần 4–5.
+
+## Bản tick được trên iPad (trang web)
+
+Trang iPad (`ipad/index.html`) giờ là **trang web thật**, lấy dữ liệu thẳng từ Apps Script mỗi 3 phút
+(ban đêm 15 phút). **Chạm ô vuông** trước một việc để đánh dấu xong:
+- Việc bị gạch ngang, góc dưới hiện **Hoàn tác** trong 5 giây. Bấm Hoàn tác thì không có gì được gửi đi.
+- Hết 5 giây: Google Tasks → chuyển sang *Đã hoàn thành*; Notion → đổi Trạng thái sang **Done**
+  (và tick ô **Done** nếu database có ô đó). Việc biến khỏi danh sách.
+- Chạm **Tải lại** ở chân trang để tải ngay.
+
+Trang ảnh cũ vẫn còn làm dự phòng: `.../<SECRET_PATH>/anh.html`.
+
+**Cài đặt (làm 1 lần):**
+1. **Notion cho phép ghi**: mở connection `Dashboard` (notion.so/profile/integrations) → *Capabilities* →
+   tick thêm **Update content** → Save.
+2. **Apps Script**: dán lại toàn bộ `apps_script.gs` mới (giữ dòng `TOKEN` của bạn) → Lưu →
+   **Deploy → Manage deployments → ✏️ → Version: New version → Deploy**.
+   Lần chạy đầu Google có thể hỏi thêm quyền sửa Google Tasks → cho phép.
+3. **Link iPad mới** = Link iPad cũ + `#k=` + chuỗi TOKEN (không có dấu `< >`), ví dụ:
+   ```
+   https://<tên-github>.github.io/ipad-dashboard/<SECRET_PATH>/#k=CHUOI-BI-MAT
+   ```
+   Phần sau dấu `#` không bao giờ được gửi lên máy chủ, và TOKEN không nằm trong file nào trên GitHub.
+4. Trên iPad: xoá biểu tượng dashboard cũ ở màn hình chính → mở **link mới** bằng Safari →
+   **Chia sẻ → Thêm vào MH chính**. (App ở màn hình chính lưu đúng link đang mở, kể cả phần `#k=`.)
+
+Link iPad mới có chứa TOKEN: ai có link này xem được lịch **và tick được việc** của bạn. Đừng gửi cho ai.
 
 ## Thêm việc từ Notion (miễn phí, dùng được với Notion Free)
 

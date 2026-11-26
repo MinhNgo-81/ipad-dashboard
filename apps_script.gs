@@ -16,7 +16,50 @@ function doGet(e) {
   if (!e || !e.parameter || e.parameter.token !== TOKEN) {
     return ContentService.createTextOutput('{"error":"forbidden"}').setMimeType(ContentService.MimeType.JSON);
   }
+  // iPad bấm tick: ?token=...&action=done&src=gtasks|notion&id=...&list=...
+  if (e.parameter.action === 'done') {
+    let res;
+    try {
+      markDone_(e.parameter.src, e.parameter.id, e.parameter.list);
+      res = { ok: true };
+    } catch (err) {
+      res = { ok: false, error: String(err && err.message || err).slice(0, 300) };
+    }
+    return ContentService.createTextOutput(JSON.stringify(res)).setMimeType(ContentService.MimeType.JSON);
+  }
   return ContentService.createTextOutput(JSON.stringify(collect_())).setMimeType(ContentService.MimeType.JSON);
+}
+
+/** Đánh dấu một việc là xong (gọi từ trang iPad). */
+function markDone_(src, id, list) {
+  if (!id) throw new Error('Thiếu id việc');
+  if (src === 'gtasks') {
+    if (!list) throw new Error('Thiếu danh sách Google Tasks');
+    Tasks.Tasks.patch({ status: 'completed' }, list, id);
+    return;
+  }
+  if (src === 'notion') {
+    const page = notion_('pages/' + id);
+    const dbId = page.parent && (page.parent.database_id || page.parent.data_source_id);
+    if (!dbId) throw new Error('Trang Notion không nằm trong database');
+    const db = notion_('databases/' + dbId);
+    const col = notionPick_(db.properties);
+    const props = {};
+    if (col.check) props[col.check] = { checkbox: true };
+    const st = col.status ? db.properties[col.status] : null;
+    if (st && st.type === 'checkbox') props[col.status] = { checkbox: true };
+    else if (st) {
+      const done = notionDoneNames_(st);
+      // ưu tiên giá trị "Done/Xong/Hoàn thành", tránh chọn nhầm "Delay/Huỷ"
+      const pick = done.filter(function (n) { return /^(done|xong|đã xong|hoàn thành|đã hoàn thành|complete|completed)$/i.test(n); })[0] ||
+                   done.filter(function (n) { return !/delay|huỷ|hủy|cancel|bỏ/i.test(n); })[0];
+      if (pick) { props[col.status] = {}; props[col.status][st.type] = { name: pick }; }
+    }
+    if (!Object.keys(props).length) throw new Error('Không biết đánh dấu xong bằng cột nào');
+    notion_('pages/' + id, { properties: props }, 'patch');
+    return;
+  }
+  throw new Error('Nguồn việc không hỗ trợ: ' + src);
 }
 
 /** Mac mini gửi mức dùng Claude lên đây (POST ?token=...), lưu lại để doGet trả kèm. */
@@ -75,7 +118,8 @@ function collect_() {
       const r = Tasks.Tasks.list(tl.id, { showCompleted: false, showHidden: false, maxResults: 100, pageToken: pageToken });
       (r.items || []).forEach(function (t) {
         if (t.title && t.title.trim()) {
-          tasks.push({ title: t.title.trim(), due: t.due ? t.due.slice(0, 10) : null, list: tl.title, notes: t.notes || '' });
+          tasks.push({ title: t.title.trim(), due: t.due ? t.due.slice(0, 10) : null, list: tl.title, notes: t.notes || '',
+                       src: 'gtasks', id: t.id, listId: tl.id });
         }
       });
       pageToken = r.nextPageToken;
@@ -116,9 +160,9 @@ const DONE_RE = /^(done|complete|completed|xong|đã xong|hoàn thành|đã hoà
 
 function prop_(k) { return PropertiesService.getScriptProperties().getProperty(k) || ''; }
 
-function notion_(path, payload) {
+function notion_(path, payload, method) {
   const opt = {
-    method: payload ? 'post' : 'get',
+    method: method || (payload ? 'post' : 'get'),
     headers: { Authorization: 'Bearer ' + prop_('NOTION_TOKEN'), 'Notion-Version': NOTION_VERSION },
     muteHttpExceptions: true,
   };
@@ -153,6 +197,8 @@ function notionPick_(props) {
     status: want('NOTION_STATUS') || byType('status') || byType('checkbox') ||
             byType('select', /trạng thái|tình trạng|status|tiến độ/i),
     date: want('NOTION_DATE') || byType('date', /hạn|due|deadline/i) || byType('date', /ngày|date/i) || byType('date'),
+    // ô tick "Done"/"Xong" đi kèm cột trạng thái: tick là xong, kể cả khi Status chưa đổi
+    check: byType('checkbox', /^\W*(done|xong|đã xong|hoàn thành|complete)\W*$/i),
   };
 }
 
@@ -190,13 +236,13 @@ function notionTasks_() {
     const done = notionDoneNames_(st);
 
     // Lọc ngay trên Notion: bỏ việc đã xong
-    let filter = null;
-    if (st && st.type === 'checkbox') filter = { property: col.status, checkbox: { equals: false } };
-    else if (st && done.length) {
-      filter = { and: done.map(function (n) {
-        const c = { property: col.status }; c[st.type] = { does_not_equal: n }; return c;
-      }) };
-    }
+    const conds = [];
+    if (st && st.type === 'checkbox') conds.push({ property: col.status, checkbox: { equals: false } });
+    else if (st) done.forEach(function (n) {
+      const c = { property: col.status }; c[st.type] = { does_not_equal: n }; conds.push(c);
+    });
+    if (col.check && col.check !== col.status) conds.push({ property: col.check, checkbox: { equals: false } });
+    const filter = conds.length ? { and: conds } : null;
 
     let cursor = null, pages = 0;
     do {
@@ -214,7 +260,7 @@ function notionTasks_() {
         if (limit && due && due > limit) return;   // hạn còn xa
         if (oldest && due && due < oldest) return;   // quá hạn đã lâu (thường là việc quên đổi trạng thái)
         if (!due && prop_('NOTION_SKIP_UNDATED') === '1') return;   // bỏ việc không có ngày
-        out.push({ title: title, due: due, list: listName, notes: '', source: 'notion' });
+        out.push({ title: title, due: due, list: listName, notes: '', src: 'notion', id: pg.id });
       });
       cursor = r.has_more ? r.next_cursor : null;
       pages++;
@@ -229,7 +275,8 @@ function testNotion() {
     const db = notion_('databases/' + dbId);
     const col = notionPick_(db.properties);
     Logger.log('Database "' + plain_(db.title) + '": tiêu đề = ' + col.title + ', trạng thái = ' + col.status +
-               ', ngày = ' + col.date + ', giá trị coi là xong = ' +
+               ', ngày = ' + col.date + (col.check && col.check !== col.status ? ', ô tick xong = ' + col.check : '') +
+               ', giá trị coi là xong = ' +
                JSON.stringify(notionDoneNames_(col.status ? db.properties[col.status] : null)));
   });
   const t = notionTasks_();

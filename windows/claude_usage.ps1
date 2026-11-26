@@ -59,7 +59,9 @@ if ($res.Code -eq 401) {
   if (-not $old) {
     Set-Content $Stamp ''
     Write-Log 'Token hết hạn, làm mới bằng claude -p'
-    try { & claude -p 'ok' --max-turns 1 *> $null } catch {}
+    $claudeExe = (Get-Command claude -ErrorAction SilentlyContinue).Source
+    if (-not $claudeExe) { $claudeExe = Join-Path $env:USERPROFILE '.local\bin\claude.exe' }
+    try { & $claudeExe -p 'ok' --max-turns 1 *> $null } catch {}
     $token = Get-ClaudeToken
     $res = Get-Usage $token
   }
